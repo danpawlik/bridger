@@ -317,8 +317,7 @@ handle_neigh(struct nlmsghdr *nh, bool add)
 	struct bridge *br;
 	const uint8_t *addr;
 
-	if (r->ndm_family != AF_BRIDGE ||
-	    r->ndm_state == NUD_STALE)
+	if (r->ndm_family != AF_BRIDGE)
 		return;
 
 	nlmsg_parse(nh, sizeof(struct ndmsg), tb, NDA_MAX, NULL);
@@ -349,7 +348,7 @@ handle_neigh(struct nlmsghdr *nh, bool add)
 	if (tb[NDA_VLAN])
 		key.vlan = nla_get_u16(tb[NDA_VLAN]);
 
-	if (!add) {
+	if (!add || r->ndm_state == NUD_STALE) {
 		f = fdb_get(br, &key);
 		if (f)
 			fdb_delete(br, f);
