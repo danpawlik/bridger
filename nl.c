@@ -257,6 +257,7 @@ handle_dellink(struct nlmsghdr *nh)
 		device_free(dev);
 		break;
 	case PF_BRIDGE:
+		device_clear_flows(dev);
 		dev->master_ifindex = 0;
 		device_update(dev);
 		break;
