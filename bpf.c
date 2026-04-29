@@ -90,19 +90,20 @@ void bridger_bpf_dev_policy_set(struct device *dev)
 
 void bridger_bpf_flush_dev_flows(int ifindex)
 {
-	struct bridger_flow_key key = {}, prev_key = {};
+	struct bridger_flow_key key = {}, prev_key;
 	struct bridger_offload_flow val;
-	bool first = true;
+	bool have_prev = false;
 
-	while (bpf_map_get_next_key(map_offload, first ? NULL : &prev_key, &key) == 0) {
-		first = false;
+	while (bpf_map_get_next_key(map_offload, have_prev ? &prev_key : NULL, &key) == 0) {
 		if (key.ifindex == ifindex ||
 		    (bpf_map_lookup_elem(map_offload, &key, &val) == 0 &&
 		     val.target_port == (uint32_t)ifindex)) {
 			bpf_map_delete_elem(map_offload, &key);
 			D("Flushed orphaned BPF flow for ifindex %d\n", ifindex);
+			have_prev = false;
 		} else {
 			prev_key = key;
+			have_prev = true;
 		}
 	}
 
