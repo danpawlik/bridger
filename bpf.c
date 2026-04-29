@@ -88,6 +88,27 @@ void bridger_bpf_dev_policy_set(struct device *dev)
 	bpf_map_update_elem(map_policy, &ifindex, &val, BPF_ANY);
 }
 
+void bridger_bpf_flush_dev_flows(int ifindex)
+{
+	struct bridger_flow_key key = {}, prev_key = {};
+	struct bridger_offload_flow val;
+	bool first = true;
+
+	while (bpf_map_get_next_key(map_offload, first ? NULL : &prev_key, &key) == 0) {
+		first = false;
+		if (key.ifindex == ifindex ||
+		    (bpf_map_lookup_elem(map_offload, &key, &val) == 0 &&
+		     val.target_port == (uint32_t)ifindex)) {
+			bpf_map_delete_elem(map_offload, &key);
+			D("Flushed orphaned BPF flow for ifindex %d\n", ifindex);
+		} else {
+			prev_key = key;
+		}
+	}
+
+	bpf_map_delete_elem(map_policy, &ifindex);
+}
+
 static void bridger_bpf_poll_pending(struct uloop_timeout *timeout)
 {
 	struct bridger_flow_key key = {};

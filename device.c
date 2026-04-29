@@ -250,11 +250,14 @@ void device_clear_flows(struct device *dev)
 
 void device_free(struct device *dev)
 {
+	int ifindex = device_ifindex(dev);
+
 	D("Free device %s\n", dev->ifname);
 
 	avl_delete(&devices, &dev->node);
 	device_clear_flows(dev);
 	device_set_attached(dev, false);
+	bridger_bpf_flush_dev_flows(ifindex);
 	if (dev->master)
 		list_del(&dev->member_list);
 	free(dev->vlan);
