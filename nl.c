@@ -169,7 +169,7 @@ handle_newlink(struct nlmsghdr *nh)
 		return;
 
 	nlmsg_parse(nh, sizeof(struct ifinfomsg), tb, __IFLA_MAX - 1, NULL);
-	if (!tb[IFLA_IFNAME] || tb[IFLA_WIRELESS])
+	if (!tb[IFLA_IFNAME])
 		return;
 
 	if (tb[IFLA_LINKINFO])
