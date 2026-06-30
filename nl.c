@@ -550,8 +550,7 @@ bridger_nl_del_filter(struct device *dev, unsigned int prio, bool ingress)
 	ignore_errors = false;
 }
 
-static void
-bridger_nl_device_clear_offload(struct device *dev)
+void bridger_nl_device_clear_offload(struct device *dev)
 {
 	int i;
 

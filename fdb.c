@@ -58,8 +58,12 @@ void fdb_delete(struct bridge *br, struct fdb_entry *f)
 
 void fdb_set_device(struct fdb_entry *f, struct device *dev)
 {
+	struct device *old_dev;
+
 	if (f->dev == dev)
 		return;
+
+	old_dev = f->dev;
 
 	if (f->dev)
 		D("Set fdb vlan %d entry %s device to %s\n",
@@ -71,6 +75,18 @@ void fdb_set_device(struct fdb_entry *f, struct device *dev)
 	f->dev = dev;
 	if (dev)
 		list_add(&f->dev_list, &dev->fdb_entries);
+
+	/*
+	 * On roam (old_dev → new dev, not disconnect): bulk-clear all bridger
+	 * offload filters on old_dev.  Per-handle RTM_DELTFILTER can silently
+	 * fail on platforms like Airoha AN7581 where the PPE already invalidated
+	 * the hardware flow; the kernel returns ENOENT which bridger ignores,
+	 * leaving stale skip_sw filters that dead-end downstream traffic.  The
+	 * priority-range clear always succeeds.  Co-located stations see a ~1 s
+	 * disruption while their flows are rebuilt by the BPF poll cycle.
+	 */
+	if (old_dev && !old_dev->br && dev)
+		bridger_nl_device_clear_offload(old_dev);
 }
 
 void fdb_clear_flows(struct fdb_entry *f)
