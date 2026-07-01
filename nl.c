@@ -27,6 +27,7 @@ static struct uloop_fd event_fd;
 static struct uloop_timeout resync_timer;
 static bool has_flow_offload;
 static bool ignore_errors;
+static bool del_failed;
 static bool recv_idle;
 
 static int offload_handle_cmp(const void *k1, const void *k2, void *ptr)
@@ -550,7 +551,7 @@ bridger_nl_del_filter(struct device *dev, unsigned int prio, bool ingress)
 	ignore_errors = false;
 }
 
-void bridger_nl_device_clear_offload(struct device *dev)
+static void bridger_nl_device_clear_offload(struct device *dev)
 {
 	int i;
 
@@ -823,9 +824,26 @@ void bridger_nl_flow_offload_del(struct bridger_flow *flow)
 	nl_send_auto_complete(cmd_sock, msg);
 	nlmsg_free(msg);
 
+	del_failed = false;
 	ignore_errors = true;
 	nl_wait_for_ack(cmd_sock);
 	ignore_errors = false;
+
+	/*
+	 * Per-handle RTM_DELTFILTER can silently fail on some platforms (e.g.
+	 * WiFi interfaces where the hardware PPE holds the flow entry bound).
+	 * Fall back to a priority-range bulk delete on the same interface,
+	 * which uses a different kernel code path and succeeds reliably.
+	 */
+	if (del_failed) {
+		struct device *dev = device_get(ifindex);
+		uint16_t prio = bridger_nl_offload_prio(flow->key.vlan);
+
+		D("flow offload del failed on ifindex %d, using bulk clear\n",
+		  ifindex);
+		if (dev)
+			bridger_nl_del_filter(dev, prio, true);
+	}
 
 	flow->offload_packets = 0;
 }
@@ -896,8 +914,11 @@ bridge_nl_error_cb(struct sockaddr_nl *nla, struct nlmsgerr *err,
 	int len = nlh->nlmsg_len;
 	const char *errstr = "(unknown)";
 
-	if (ignore_errors)
+	if (ignore_errors) {
+		if (err->error)
+			del_failed = true;
 		return NL_SKIP;
+	}
 
 	if (!(nlh->nlmsg_flags & NLM_F_ACK_TLVS))
 		return NL_SKIP;

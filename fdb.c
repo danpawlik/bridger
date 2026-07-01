@@ -77,16 +77,16 @@ void fdb_set_device(struct fdb_entry *f, struct device *dev)
 		list_add(&f->dev_list, &dev->fdb_entries);
 
 	/*
-	 * On roam (old_dev → new dev, not disconnect): bulk-clear all bridger
-	 * offload filters on old_dev.  Per-handle RTM_DELTFILTER can silently
-	 * fail on platforms like Airoha AN7581 where the PPE already invalidated
-	 * the hardware flow; the kernel returns ENOENT which bridger ignores,
-	 * leaving stale skip_sw filters that dead-end downstream traffic.  The
-	 * priority-range clear always succeeds.  Co-located stations see a ~1 s
-	 * disruption while their flows are rebuilt by the BPF poll cycle.
+	 * On roam (old_dev → new dev, not disconnect): purge any pending_flows
+	 * BPF map entries that arrived on old_dev.  Without this, the next poll
+	 * cycle processes those stale entries, detects a backwards port migration
+	 * (fdb_in->dev now points to new_dev, but the stale key carries
+	 * old_dev's ifindex), and calls fdb_set_device() again in the wrong
+	 * direction — re-creating TC offload filters for the departed radio and
+	 * undoing the cleanup that fdb_clear_flows() just performed.
 	 */
 	if (old_dev && !old_dev->br && dev)
-		bridger_nl_device_clear_offload(old_dev);
+		bridger_bpf_flush_pending_by_dev(old_dev);
 }
 
 void fdb_clear_flows(struct fdb_entry *f)

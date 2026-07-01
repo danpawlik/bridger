@@ -60,6 +60,26 @@ void bridger_bpf_flow_delete(struct bridger_flow *flow)
 	bpf_map_delete_elem(map_offload, &flow->key);
 }
 
+void bridger_bpf_flush_pending_by_dev(struct device *dev)
+{
+	unsigned int ifindex = device_ifindex(dev);
+	struct bridger_flow_key key = {}, next;
+
+	/*
+	 * Walk the pending_flows map and delete every entry that arrived on
+	 * the given interface.  Keep 'key' pointing at the last entry that was
+	 * NOT deleted so get_next_key always has a valid anchor; deleting the
+	 * current 'next' without advancing 'key' is the standard safe-delete
+	 * pattern for BPF hash-map iteration.
+	 */
+	while (bpf_map_get_next_key(map_pending, &key, &next) == 0) {
+		if (next.ifindex == ifindex)
+			bpf_map_delete_elem(map_pending, &next);
+		else
+			key = next;
+	}
+}
+
 void bridger_bpf_dev_policy_set(struct device *dev)
 {
 	struct bridger_policy_flow val = {};
