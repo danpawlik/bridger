@@ -64,6 +64,37 @@ void bridger_bpf_flow_delete(struct bridger_flow *flow)
 	bpf_map_delete_elem(map_offload, &flow->key);
 }
 
+void bridger_bpf_flush_pending(struct device *dev, const struct fdb_key *fkey)
+{
+	unsigned int ifindex = device_ifindex(dev);
+	struct bridger_flow_key keys[BRIDGER_PENDING_FLOWS];
+	const struct bridger_flow_key *prev = NULL;
+	unsigned int i, n;
+
+	/*
+	 * Snapshot keys before deleting: a deleted iterator key restarts a
+	 * hash-map walk. Bound the walk since the dataplane can change the map.
+	 */
+	for (n = 0; n < ARRAY_SIZE(keys); n++) {
+		if (bpf_map_get_next_key(map_pending, prev, &keys[n]))
+			break;
+		prev = &keys[n];
+	}
+
+	for (i = 0; i < n; i++) {
+		const struct bridger_flow_key *key = &keys[i];
+
+		if (key->ifindex != ifindex ||
+		    device_vlan_get_input(dev, key->vlan) != fkey->vlan)
+			continue;
+		if (memcmp(key->src, fkey->addr, ETH_ALEN) &&
+		    memcmp(key->dest, fkey->addr, ETH_ALEN))
+			continue;
+
+		bpf_map_delete_elem(map_pending, key);
+	}
+}
+
 void bridger_bpf_dev_policy_set(struct device *dev)
 {
 	struct bridger_policy_flow val = {};
