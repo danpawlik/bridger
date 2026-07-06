@@ -27,6 +27,7 @@ static struct uloop_fd event_fd;
 static struct uloop_timeout resync_timer;
 static bool has_flow_offload;
 static bool ignore_errors;
+static int last_nl_error;
 static bool recv_idle;
 
 static int offload_handle_cmp(const void *k1, const void *k2, void *ptr)
@@ -815,8 +816,16 @@ void bridger_nl_flow_offload_del(struct bridger_flow *flow)
 		return;
 
 	ifindex = flow->offload_ifindex;
-	if (!ifindex)
+	if (!ifindex) {
+		D("flow offload del SKIPPED (offload_ifindex=0): %s->%s\n",
+		  format_macaddr(flow->key.src), format_macaddr(flow->key.dest));
 		return;
+	}
+
+	D("flow offload del on ifindex %d handle 0x%x: %s->%s vlan=%d\n",
+	  ifindex, bridger_nl_flow_handle(flow),
+	  format_macaddr(flow->key.src), format_macaddr(flow->key.dest),
+	  flow->key.vlan);
 
 	avl_delete(&offload_flows, &flow->offload_node);
 	flow->offload_ifindex = 0;
@@ -824,9 +833,16 @@ void bridger_nl_flow_offload_del(struct bridger_flow *flow)
 	nl_send_auto_complete(cmd_sock, msg);
 	nlmsg_free(msg);
 
+	last_nl_error = 0;
 	ignore_errors = true;
 	nl_wait_for_ack(cmd_sock);
 	ignore_errors = false;
+
+	if (last_nl_error)
+		D("flow offload del FAILED on ifindex %d: kernel error %d\n",
+		  ifindex, last_nl_error);
+	else
+		D("flow offload del OK on ifindex %d\n", ifindex);
 
 	flow->offload_packets = 0;
 }
@@ -897,8 +913,10 @@ bridge_nl_error_cb(struct sockaddr_nl *nla, struct nlmsgerr *err,
 	int len = nlh->nlmsg_len;
 	const char *errstr = "(unknown)";
 
-	if (ignore_errors)
+	if (ignore_errors) {
+		last_nl_error = err->error;
 		return NL_SKIP;
+	}
 
 	if (!(nlh->nlmsg_flags & NLM_F_ACK_TLVS))
 		return NL_SKIP;
